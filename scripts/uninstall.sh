@@ -1,5 +1,5 @@
 #!/bin/bash
-# Gives folders and "Show in Finder" back to Finder, stops Atrium and removes it and its login job.
+# Gives "Show in Finder" back to Finder, stops Atrium and removes it and its login job.
 set -euo pipefail
 DEST="$HOME/Applications/Atrium.app"
 LABEL="io.kgswx.atrium"

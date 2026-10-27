@@ -72,14 +72,11 @@ cd atrium
 ./scripts/install.sh --default
 ```
 
-This builds Atrium, copies it to `~/Applications`, starts it in the background now and at every login (a LaunchAgent, `io.kgswx.atrium`), and with `--default`:
+This builds Atrium, copies it to `~/Applications` and starts it in the background now and at every login (a LaunchAgent, `io.kgswx.atrium`). With `--default` it also sets Atrium as the file viewer (`NSFileViewer`), so "Show in Finder" in Chrome, VS Code, Xcode and most other apps opens Atrium with the files selected.
 
-- sets Atrium as the file viewer (`NSFileViewer`), so "Show in Finder" in Chrome, VS Code, Xcode and most other apps opens Atrium with the files selected, and
-- sets Atrium as the default app for folders, so folders opened from other apps or with `open .` in Terminal open in Atrium.
+Leave out `--default` to install it alongside Finder only. Both settings can be switched from the Atrium menu: **Use Atrium for "Show in Finder"** and **Start Quietly at Login**.
 
-Leave out `--default` to install it alongside Finder only. Both settings can be switched from the Atrium menu: **Use Atrium Instead of Finder for Folders** and **Start Quietly at Login**.
-
-Finder keeps running whatever you choose: it draws the desktop, owns the Trash window and AirDrop, and a folder you double-click on the desktop still opens in Finder.
+Finder keeps running whatever you choose. It draws the desktop, owns the Trash window and AirDrop, and stays the default app for folders: macOS refuses to give that to any other app (it answers `paramErr`), so a folder opened from another app, or with `open .` in Terminal, still opens in Finder. To open a folder from Terminal in Atrium, use `open -a Atrium .`, or add `alias here='open -a Atrium .'` to `~/.zshrc`.
 
 To remove Atrium and give everything back to Finder:
 

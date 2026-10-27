@@ -1,6 +1,6 @@
 #!/bin/bash
 # Builds Atrium, puts it in ~/Applications and starts it quietly, now and at every login.
-# With --default it also becomes the file viewer for folders and "Show in Finder" (scripts/uninstall.sh undoes it).
+# With --default, "Show in Finder" in other apps opens Atrium too (scripts/uninstall.sh undoes it).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

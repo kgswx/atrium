@@ -1,8 +1,7 @@
-import AppKit
-import UniformTypeIdentifiers
+import Foundation
 
-/// Atrium as the Mac's file viewer: "Show in Finder" in other apps (the NSFileViewer default) and folders
-/// opened from anywhere but Finder itself (the default app for public.folder). Off puts Finder back for both.
+/// Atrium as the Mac's file viewer: "Show in Finder" in other apps goes to whatever NSFileViewer names.
+/// The default app for folders can't follow: macOS answers paramErr (-50) to any app but Finder for public.folder.
 enum DefaultViewer {
     private static let key = "NSFileViewer" as CFString
     static var bundleID: String { Bundle.main.bundleIdentifier ?? "io.kgswx.atrium" }
@@ -11,14 +10,10 @@ enum DefaultViewer {
         (CFPreferencesCopyValue(key, kCFPreferencesAnyApplication, kCFPreferencesCurrentUser, kCFPreferencesAnyHost) as? String) == bundleID
     }
 
-    static func set(_ on: Bool, completion: ((Error?) -> Void)? = nil) {
+    static func set(_ on: Bool) {
         CFPreferencesSetValue(key, on ? bundleID as CFString : nil, kCFPreferencesAnyApplication,
                               kCFPreferencesCurrentUser, kCFPreferencesAnyHost)
         CFPreferencesSynchronize(kCFPreferencesAnyApplication, kCFPreferencesCurrentUser, kCFPreferencesAnyHost)
-        let app = on ? Bundle.main.bundleURL : URL(fileURLWithPath: "/System/Library/CoreServices/Finder.app")
-        NSWorkspace.shared.setDefaultApplication(at: app, toOpen: .folder) { error in
-            DispatchQueue.main.async { completion?(error) }
-        }
     }
 }
 

@@ -164,14 +164,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     @objc func newWindow(_ sender: Any?) { openWindow(at: home) }
 
-    @objc func toggleDefaultViewer(_ sender: Any?) {
-        DefaultViewer.set(!DefaultViewer.isOn) { error in
-            guard let error else { return }
-            let alert = NSAlert(error: error)
-            alert.informativeText = "“Show in Finder” in other apps was changed, but the default app for folders wasn't: \(error.localizedDescription)"
-            alert.runModal()
-        }
-    }
+    @objc func toggleDefaultViewer(_ sender: Any?) { DefaultViewer.set(!DefaultViewer.isOn) }
 
     @objc func toggleLoginItem(_ sender: Any?) {
         do { try LoginItem.set(!LoginItem.isOn) } catch { NSAlert(error: error).runModal() }

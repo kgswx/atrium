@@ -26,7 +26,7 @@ enum MainMenu {
         let menu = NSMenu(title: "Atrium")
         menu.addItem(item("About Atrium", #selector(NSApplication.orderFrontStandardAboutPanel(_:))))
         menu.addItem(.separator())
-        menu.addItem(item("Use Atrium Instead of Finder for Folders", #selector(AppDelegate.toggleDefaultViewer(_:))))
+        menu.addItem(item("Use Atrium for “Show in Finder”", #selector(AppDelegate.toggleDefaultViewer(_:))))
         menu.addItem(item("Start Quietly at Login", #selector(AppDelegate.toggleLoginItem(_:))))
         menu.addItem(.separator())
         menu.addItem(item("Hide Atrium", #selector(NSApplication.hide(_:)), "h"))
