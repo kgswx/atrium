@@ -65,6 +65,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSToo
         center.addObserver(self, selector: #selector(settingsChanged), name: Settings.changed, object: nil)
         center.addObserver(self, selector: #selector(activity(_:)), name: FileOperations.activity, object: nil)
         center.addObserver(self, selector: #selector(refreshCommands), name: Clipboard.changed, object: nil)
+        center.addObserver(self, selector: #selector(stylesChanged), name: IconCache.stylesChanged, object: nil)
         navigate(to: folder, selecting: selecting, record: false)
         #if DEBUG
         Self.alive += 1
@@ -154,6 +155,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSToo
         commandBar.add("character.cursor.ibeam", tip: "Rename (F2)", action: #selector(renameItem(_:)))
         commandBar.add("square.and.arrow.up", tip: "Share", action: #selector(share(_:)))
         commandBar.add("trash", tip: "Move to Trash (Delete)", action: #selector(moveToTrash(_:)))
+        commandBar.addMenu("paintpalette", title: nil, tip: "Folder colour and icon") { [weak self] in self?.styleMenu() ?? NSMenu() }
         commandBar.addSeparator()
         commandBar.addMenu("arrow.up.arrow.down", title: "Sort", tip: "Sort and group") { [weak self] in self?.sortMenu() ?? NSMenu() }
         commandBar.addMenu("eye", title: "View", tip: "Panes and hidden items") { [weak self] in self?.viewMenu() ?? NSMenu() }
@@ -175,12 +177,10 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSToo
         addressBar.onPick = { [weak self] url in self?.navigate(to: url) }
         addressBar.onSubmit = { [weak self] text in self?.go(to: text) }
         addressBar.onFinish = { [weak self] in self?.focusList() }
+        addressBar.onDrop = { [weak self] urls, target, mode in self?.transfer(urls, to: target, mode: mode) }
         // Wide but never so wide that the toolbar overflows: it takes the room, the search box keeps a fixed width.
         addressBar.widthAnchor.constraint(greaterThanOrEqualToConstant: 220).isActive = true
         addressBar.widthAnchor.constraint(lessThanOrEqualToConstant: 1400).isActive = true
-        let wide = addressBar.widthAnchor.constraint(equalToConstant: 1400)
-        wide.priority = .defaultLow
-        wide.isActive = true
 
         let toolbar = NSToolbar(identifier: "AtriumToolbar")
         toolbar.delegate = self
@@ -360,6 +360,22 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSToo
     @objc func focusSearch(_ sender: Any?) { window?.makeFirstResponder(searchField) }
 
     override func newWindowForTab(_ sender: Any?) { openTab(FileManager.default.homeDirectoryForCurrentUser) }
+
+    /// A second tab on the same folder, with the same back and forward history and selection.
+    @objc func duplicateTab(_ sender: Any?) {
+        let (back, forward) = (self.back, self.forward)
+        AppDelegate.shared.openTab(at: folder, beside: self, selecting: list.selectedURLs) { copy in
+            copy.adoptHistory(back: back, forward: forward)
+        }
+    }
+
+    func adoptHistory(back: [URL], forward: [URL]) {
+        self.back = back
+        self.forward = forward
+        refreshCommands()
+    }
+
+    var history: (back: [URL], forward: [URL]) { (back, forward) }
 
     // MARK: Opening
 
@@ -560,6 +576,16 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSToo
     /// Downloads the selection (every file inside a selected folder too), or this whole folder if nothing is selected.
     @objc func downloadNow(_ sender: Any?) {
         let urls = targets
+        // A whole folder can be gigabytes: ask first.
+        if let folder = urls.first(where: { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }) {
+            let alert = NSAlert()
+            alert.messageText = urls.count == 1 ? "Download everything in “\(folder.lastPathComponent)” to this Mac?"
+                : "Download everything in these \(urls.count) items to this Mac?"
+            alert.informativeText = "Every file inside will be kept on this Mac, which can take a lot of space. Free up space undoes it."
+            alert.addButton(withTitle: "Download")
+            alert.addButton(withTitle: "Cancel")
+            guard alert.runModal() == .alertFirstButtonReturn else { return }
+        }
         DispatchQueue.global(qos: .utility).async {
             let errors = CloudActions.download(urls)
             guard !errors.isEmpty else { return }
@@ -611,6 +637,110 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSToo
             DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
             return work
         }
+    }
+
+    // MARK: Folder colour and icon
+
+    /// The selected folders, or the folder being shown when no folder is selected.
+    private var styleTargets: [URL] { targetFolders }
+
+    @objc func setFolderColor(_ sender: NSMenuItem) {
+        let color = FolderColor(rawValue: sender.tag)
+        applyStyle { try FolderStyles.setColor(color, at: $0) }
+    }
+
+    @objc func setFolderSymbol(_ sender: NSMenuItem) {
+        let symbol = sender.representedObject as? String
+        applyStyle { try FolderStyles.setSymbol(symbol, at: $0) }
+    }
+
+    /// Any picture as the folder's icon, as in Windows' Properties > Customise > Change Icon. macOS keeps it in an
+    /// "Icon" file inside the folder, which a cloud folder would upload, so cloud folders get colours and symbols only.
+    @objc func chooseFolderPicture(_ sender: Any?) {
+        guard !isCloud else {
+            warn("Pictures can't be used in cloud folders: macOS stores them as a hidden file that would sync. Use a colour or a symbol instead.")
+            return
+        }
+        let folders = styleTargets
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.image]
+        panel.prompt = "Use as Icon"
+        panel.message = "Choose a picture for \(folders.count == 1 ? "“\(folders[0].lastPathComponent)”" : "\(folders.count) folders")."
+        panel.beginSheetModal(for: window!) { [weak self] response in
+            guard response == .OK, let file = panel.url, let image = NSImage(contentsOf: file) else { return }
+            for folder in folders { NSWorkspace.shared.setIcon(image, forFile: folder.path, options: []) }
+            self?.announceStyles()
+        }
+    }
+
+    @objc func removeFolderPicture(_ sender: Any?) {
+        for folder in styleTargets { NSWorkspace.shared.setIcon(nil, forFile: folder.path, options: []) }
+        announceStyles()
+    }
+
+    private func applyStyle(_ change: (URL) throws -> Void) {
+        var errors: [String] = []
+        let guarded = styleTargets.filter { FolderStyles.isGuarded($0) }.map(\.standardizedFileURL.path)
+        if !guarded.isEmpty { Settings.styledGuardedFolders += guarded }
+        for folder in styleTargets {
+            do { try change(folder) } catch { errors.append("\(folder.lastPathComponent): \(error.localizedDescription)") }
+        }
+        if !errors.isEmpty { FileOperations.showErrors(errors, title: "Some folders couldn't be changed.") }
+        announceStyles()
+    }
+
+    /// Every window and navigation pane redraws; the change is on the folders, so it shows everywhere.
+    private func announceStyles() { NotificationCenter.default.post(name: IconCache.stylesChanged, object: nil) }
+
+    @objc private func stylesChanged() {
+        reload()
+        addressBar.url = folder
+    }
+
+    /// The colours inline, then the symbols: the command bar's palette button and the right-click menus.
+    func styleMenu() -> NSMenu {
+        let menu = colorMenu()
+        menu.addItem(.separator())
+        let icons = NSMenuItem(title: "Folder icon", action: nil, keyEquivalent: "")
+        icons.submenu = symbolMenu()
+        menu.addItem(icons)
+        return menu
+    }
+
+    func colorMenu() -> NSMenu {
+        let menu = NSMenu()
+        for color in [nil] + FolderColor.menuOrder.map(Optional.some) {
+            let entry = item(color?.title ?? "No colour", #selector(setFolderColor(_:)))
+            entry.tag = color?.rawValue ?? 0
+            entry.image = FolderArt.swatch(color)
+            menu.addItem(entry)
+        }
+        return menu
+    }
+
+    func symbolMenu() -> NSMenu {
+        let menu = NSMenu()
+        menu.addItem(item("No symbol", #selector(setFolderSymbol(_:))))
+        menu.addItem(.separator())
+        for (symbol, name) in FolderStyles.symbols {
+            menu.addItem(item(name, #selector(setFolderSymbol(_:)), value: symbol, symbol: symbol))
+        }
+        menu.addItem(.separator())
+        menu.addItem(item("Choose Picture…", #selector(chooseFolderPicture(_:)), symbol: "photo"))
+        menu.addItem(item("Remove Picture", #selector(removeFolderPicture(_:))))
+        return menu
+    }
+
+    /// Colour and icon submenus for a right-click menu.
+    private func addStyleItems(to menu: NSMenu) {
+        let colour = NSMenuItem(title: "Folder colour", action: nil, keyEquivalent: "")
+        colour.image = NSImage(systemSymbolName: "paintpalette", accessibilityDescription: nil)
+        colour.submenu = colorMenu()
+        menu.addItem(colour)
+        let icon = NSMenuItem(title: "Folder icon", action: nil, keyEquivalent: "")
+        icon.image = NSImage(systemSymbolName: "star.square", accessibilityDescription: nil)
+        icon.submenu = symbolMenu()
+        menu.addItem(icon)
     }
 
     // MARK: View
@@ -762,6 +892,10 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSToo
             return isCloud && (selected.isEmpty || selected.contains { $0.isFolder || $0.sync == .local })
         case #selector(openInGoogleDrive(_:)), #selector(copyDriveLink(_:)):
             return isGoogleDrive
+        case #selector(setFolderColor(_:)), #selector(setFolderSymbol(_:)), #selector(removeFolderPicture(_:)):
+            return !styleTargets.isEmpty
+        case #selector(chooseFolderPicture(_:)):
+            return !styleTargets.isEmpty && !isCloud
         default:
             return true
         }
@@ -782,6 +916,10 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSToo
         case #selector(sortAscending(_:)): return Settings.sortAscending
         case #selector(sortDescending(_:)): return !Settings.sortAscending
         case #selector(groupBy(_:)): return value == Settings.groupKey.rawValue
+        case #selector(setFolderColor(_:)):
+            return styleTargets.allSatisfy { (FolderStyles.style(at: $0, labelNumber: try? $0.resourceValues(forKeys: [.labelNumberKey]).labelNumber).color?.rawValue ?? 0) == item.tag }
+        case #selector(setFolderSymbol(_:)):
+            return styleTargets.allSatisfy { FolderStyles.symbol(at: $0) == value }
         default: return nil
         }
     }
@@ -839,6 +977,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSToo
 
     private func moreMenu() -> NSMenu {
         let menu = NSMenu()
+        menu.addItem(item("New tab", #selector(newWindowForTab(_:)), symbol: "plus.square.on.square"))
+        menu.addItem(item("Duplicate tab", #selector(duplicateTab(_:)), symbol: "square.on.square"))
+        menu.addItem(.separator())
         menu.addItem(item("Select all", #selector(selectAll(_:))))
         menu.addItem(item("Select none", #selector(selectNone(_:))))
         menu.addItem(item("Invert selection", #selector(invertSelection(_:))))
@@ -849,6 +990,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSToo
         menu.addItem(item("Pin to Quick access", #selector(pinToQuickAccess(_:)), symbol: "pin"))
         menu.addItem(item("Compress to ZIP file", #selector(compress(_:)), symbol: "doc.zipper"))
         addCloudItems(to: menu)
+        menu.addItem(.separator())
+        addStyleItems(to: menu)
         menu.addItem(.separator())
         menu.addItem(item("Properties", #selector(showProperties(_:)), symbol: "info.circle"))
         return menu
@@ -889,6 +1032,8 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSToo
             menu.addItem(item("Open in Finder", #selector(openInFinder(_:))))
             addCloudItems(to: menu)
             menu.addItem(.separator())
+            addStyleItems(to: menu)
+            menu.addItem(.separator())
             menu.addItem(item("Properties", #selector(showProperties(_:))))
             return
         }
@@ -915,6 +1060,10 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSToo
             menu.addItem(item("Open in Terminal", #selector(openInTerminal(_:)), symbol: "terminal"))
         }
         addCloudItems(to: menu)
+        if selected.contains(where: \.isFolder) {
+            menu.addItem(.separator())
+            addStyleItems(to: menu)
+        }
         menu.addItem(.separator())
         menu.addItem(item("Properties", #selector(showProperties(_:)), symbol: "info.circle"))
     }

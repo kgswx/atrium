@@ -50,6 +50,12 @@ enum Settings {
     /// How long after the last window closes Atrium restarts itself to give memory back; 0 turns it off.
     static var idleRestartSeconds: Double { store.double(forKey: "IdleRestartSeconds") }
 
+    /// Guarded folders (Desktop, Documents...) given a colour or symbol here, so their attributes may be read.
+    static var styledGuardedFolders: [String] {
+        get { store.stringArray(forKey: "StyledGuardedFolders") ?? [] }
+        set { store.set(Array(Set(newValue)).sorted(), forKey: "StyledGuardedFolders") }
+    }
+
     static var pinned: [URL] {
         get { (store.stringArray(forKey: "Pinned") ?? []).map { URL(fileURLWithPath: $0) } }
         set { store.set(newValue.map(\.path), forKey: "Pinned"); post() }

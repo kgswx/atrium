@@ -7,8 +7,9 @@ A light file browser for macOS that works like Windows Explorer: a folder tree o
 ## What's in version 0.1
 
 - **Navigation pane**: Quick access (Home, Desktop, Documents, Downloads, Applications and your pinned folders), Cloud (iCloud Drive, Google Drive, OneDrive, Dropbox: whatever is set up), then This Mac with a folder tree and every drive. Right-click to pin, unpin or eject; middle-click opens in a new tab.
-- **Address bar**: a breadcrumb you click; click beside it (or press Ctrl+L, Option+D or F4) to type a path. It understands `~/Documents`, `..`, `Documents\Work`, quoted paths, and words like `downloads`.
-- **Command bar**: New (folder or text document), Cut, Copy, Paste, Rename, Share, Delete, Sort, View and a "…" menu with Copy as path, Open in Terminal, Pin to Quick access, Compress to ZIP and Properties. The Preview toggle sits on the right.
+- **Address bar**: the full path from the drive (Macintosh HD › Users › you › …), every part clickable. The arrow after each part lists the folders inside it, « holds the parts that don't fit, and you can drop files on any part to move them there. Click beside the path (or press Ctrl+L, Option+D or F4) to type one instead: it understands `~/Documents`, `..`, `Documents\Work`, quoted paths, and words like `downloads`.
+- **Command bar**: New (folder or text document), Cut, Copy, Paste, Rename, Share, Delete, folder colour, Sort, View and a "…" menu with New tab, Duplicate tab, Copy as path, Open in Terminal, Pin to Quick access, Compress to ZIP and Properties. The Preview toggle sits on the right.
+- **Folder colours and icons**: give a folder one of the seven Finder colours and a symbol on its front (star, work, drawings, 3D models, money, photos, code, archive and more), or any picture as its icon. See below.
 - **Details view**: Name, Date modified, Type and Size; click a header to sort, drag to resize or reorder; folders always come first. Group by Type or Date modified (Today, Yesterday, Earlier this week…).
 - **Cut and paste that moves**: cut items fade until you paste them. Pasting into the same folder makes "Report - Copy.pdf". If a name is taken you choose Keep Both, Replace (the old one goes to the Trash) or Skip.
 - **Drag and drop**: Explorer's rules: on the same drive a drag moves, to another drive it copies; hold Option to copy, Command to move. Dropping on the Dock's Trash moves to the Trash.
@@ -18,8 +19,20 @@ A light file browser for macOS that works like Windows Explorer: a folder tree o
 - **Google Drive and other cloud folders**: see below.
 - **Preview pane** (Option+P) drawn by Quick Look, and Space for the Quick Look panel.
 - **Properties** (Option+Return or Cmd+I): type, location, size and size on disk, with folder contents counted in the background.
-- **Tabs**: Ctrl+T or Cmd+T, and the tab bar's + button.
+- **Tabs**: the tab bar is always there, as in Explorer. Ctrl+T or Cmd+T or the + button opens one, middle-click or Ctrl+Return opens a folder in one, and **Duplicate tab** (Ctrl+Shift+D, Option+Cmd+T, or the "…" menu) copies the folder, its back and forward history and the selection. Drag a tab out to make it a window.
 - **Open With**, **Open in Terminal**, **Open in Finder**, **Copy as path**, **Compress to ZIP**, **Show hidden items** (Shift+Cmd+.).
+
+## Folder colours and icons
+
+Right-click a folder (or several) and choose **Folder colour** or **Folder icon**, or use the palette button in the command bar; with nothing selected they apply to the folder you're in.
+
+- **Colours** are the seven Finder colours. Atrium sets the folder's Finder colour tag, so the colour follows the folder when it's renamed, moved or copied, Finder shows the same colour as a tag, and Spotlight can find folders by it. Atrium draws the folder itself in that colour.
+- **Symbols** sit on the folder's front in white, in the folder's colour or the usual blue. Atrium keeps the choice in an attribute on the folder (`io.kgswx.atrium.symbol`), so it travels with it too; Finder doesn't show it.
+- **Choose Picture…** uses any image as the folder's icon, the way Windows' Change Icon does; Finder shows those too. Not in cloud folders, where macOS would store the picture as a hidden file that syncs.
+
+macOS 26's Finder has its own folder customisation, but it keeps it in a private format, so the two don't share symbols; colours (as tags) do.
+
+The list shows icons at 20 points rather than Explorer's 16, so colours and symbols read at a glance.
 
 ## Google Drive and other cloud folders
 
@@ -57,6 +70,8 @@ Ctrl and Cmd both work for the usual shortcuts, so Windows habits and Mac habits
 | Option+Return, Cmd+I | Properties |
 | Space | Quick Look |
 | Ctrl/Cmd + T, W, N | New tab, close tab, new window |
+| Ctrl+Shift+D, Option+Cmd+T | Duplicate tab |
+| Ctrl+Tab, Ctrl+Shift+Tab | Next and previous tab |
 | Option+Cmd+E (anywhere) | New Atrium window, like Win+E |
 
 ## Light in the background
@@ -127,6 +142,8 @@ The self-test (debug builds only) opens a window on a scratch folder under `buil
 | --- | --- |
 | `Sources/AtriumCore` | Reading folders, sorting, grouping, Explorer-style names, address-bar parsing, cloud sync state and Drive links. No AppKit; unit tested. |
 | `Sources/Atrium/CloudActions.swift` | Download now and Free up space. |
+| `Sources/Atrium/FolderArt.swift`, `Sources/AtriumCore/FolderStyle.swift` | Folder colours and symbols: reading, writing and drawing them. |
+| `Sources/Atrium/AddressBar.swift` | The full-path address bar. |
 | `Sources/Atrium/BrowserWindowController.swift` | One window or tab: navigation, commands, menus, search. |
 | `Sources/Atrium/FileListController.swift` | The Details view, rename in place, drag and drop, Quick Look. |
 | `Sources/Atrium/SidebarController.swift` | The navigation pane. |

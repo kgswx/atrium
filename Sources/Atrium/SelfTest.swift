@@ -204,6 +204,8 @@ enum SelfTest {
         check("…and back", c.isPreviewShown == previewWas)
 
         key(37, "l", .control)
+        check("all toolbar items fit (none pushed into the overflow menu)", Set(c.window?.toolbar?.visibleItems?.map(\.itemIdentifier.rawValue) ?? [])
+              .isSuperset(of: ["back", "forward", "up", "refresh", "address", "search"]))
         check("Ctrl+L puts a path in the address bar", (w.firstResponder as? NSTextView)?.string == root.path)
         if let editor = w.firstResponder as? NSTextView {
             editor.string = "sub"
@@ -241,6 +243,31 @@ enum SelfTest {
         wait(0.5)
         check("clearing the search shows the folder again", c.list.allEntries.count >= 4)
 
+        // The full path, from the drive down.
+        let chain = AddressBar.chain(for: root)
+        check("the address bar path starts at the drive and has every folder", chain.first?.path == "/"
+              && chain.count == root.pathComponents.count && chain.last?.key == root.key)
+
+        // Folder colour and symbol, on the folder itself.
+        wait(2) { c.list.allEntries.contains { $0.name == "sub" } }
+        select("sub")
+        let red = NSMenuItem(title: "Red", action: #selector(BrowserWindowController.setFolderColor(_:)), keyEquivalent: "")
+        red.tag = FolderColor.red.rawValue
+        c.setFolderColor(red)
+        let star = NSMenuItem(title: "Star", action: #selector(BrowserWindowController.setFolderSymbol(_:)), keyEquivalent: "")
+        star.representedObject = "star.fill"
+        c.setFolderSymbol(star)
+        wait(2) { c.list.allEntries.first { $0.name == "sub" }?.style.symbol == "star.fill" }
+        let styled = c.list.allEntries.first { $0.name == "sub" }?.style
+        check("Folder colour sets the Finder colour tag", (try? root.appendingPathComponent("sub").resourceValues(forKeys: [.tagNamesKey]).tagNames) == ["Red"])
+        check("…and the list shows the folder red with a star", styled?.color == .red && styled?.symbol == "star.fill")
+        let none = NSMenuItem(title: "No colour", action: #selector(BrowserWindowController.setFolderColor(_:)), keyEquivalent: "")
+        select("sub")
+        c.setFolderColor(none)
+        c.setFolderSymbol(NSMenuItem(title: "No symbol", action: nil, keyEquivalent: ""))
+        wait(2) { c.list.allEntries.first { $0.name == "sub" }?.style.isPlain == true }
+        check("No colour and No symbol put it back", c.list.allEntries.first { $0.name == "sub" }?.style.isPlain == true)
+
         // Optional, against a real cloud folder: ATRIUM_CLOUD_TEST=<folder in Google Drive> scripts/selftest.sh
         // Downloads one small online-only file and frees it again, so nothing is left changed.
         if let cloudPath = ProcessInfo.processInfo.environment["ATRIUM_CLOUD_TEST"] {
@@ -257,17 +284,22 @@ enum SelfTest {
             if let small {
                 func state() -> SyncState? { c.list.allEntries.first { $0.url.key == small.url.key }?.sync }
                 select(small.name)
-                c.downloadNow(nil)
-                wait(25) { state() == .local }
-                check("cloud: Download now brings the file to this Mac", state() == .local)
-                select(small.name)
-                c.freeUpSpace(nil)
-                wait(25) { state() == .cloudOnly }
-                check("cloud: Free up space makes it online only again", state() == .cloudOnly)
-                select(small.name)
-                c.copyDriveLink(nil)
-                let link = NSPasteboard.general.string(forType: .string) ?? ""
-                check("cloud: Copy Google Drive link gives a Drive link", link.hasPrefix("https://drive.google.com/open?id="))
+                // Never let an empty selection turn Download now into "download the whole folder".
+                if c.list.selectedEntries.map(\.url.key) == [small.url.key] {
+                    c.downloadNow(nil)
+                    wait(45) { state() == .local }
+                    check("cloud: Download now brings the file to this Mac", state() == .local)
+                    select(small.name)
+                    c.freeUpSpace(nil)
+                    wait(45) { state() == .cloudOnly }
+                    check("cloud: Free up space makes it online only again", state() == .cloudOnly)
+                    select(small.name)
+                    c.copyDriveLink(nil)
+                    let link = NSPasteboard.general.string(forType: .string) ?? ""
+                    check("cloud: Copy Google Drive link gives a Drive link", link.hasPrefix("https://drive.google.com/open?id="))
+                } else {
+                    check("cloud: the test file could be selected", false)
+                }
             } else {
                 lines.append("SKIP cloud: no small online-only file in that folder")
             }
@@ -285,6 +317,22 @@ enum SelfTest {
         properties?.alphaValue = 0
         check("Properties opens", properties != nil)
         properties?.close()
+
+        // Tabs.
+        check("the tab bar shows with one tab", w.tabGroup?.isTabBarVisible == true)
+        select("sub")
+        key(2, "D", [.control, .shift])
+        wait(2) { (w.tabbedWindows?.count ?? 1) == 2 }
+        let copy = w.tabbedWindows?.first { $0 !== w }
+        copy?.alphaValue = 0
+        let twin = copy?.windowController as? BrowserWindowController
+        wait(2) { twin?.list.allEntries.isEmpty == false }
+        check("Ctrl+Shift+D duplicates the tab", w.tabbedWindows?.count == 2 && twin?.folder.key == c.folder.key)
+        check("…with the same history and selection", twin?.history.back == c.history.back
+              && twin?.list.selectedEntries.map(\.name) == ["sub"])
+        copy?.close()
+        wait(0.5)
+        w.makeFirstResponder(c.list.table)
 
         w.close()
         wait(1) { NSApp.activationPolicy() == .accessory }

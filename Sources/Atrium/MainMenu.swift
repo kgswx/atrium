@@ -41,6 +41,7 @@ enum MainMenu {
         let menu = NSMenu(title: "File")
         menu.addItem(item("New Window", #selector(AppDelegate.newWindow(_:)), "n"))
         menu.addItem(item("New Tab", #selector(NSResponder.newWindowForTab(_:)), "t"))
+        menu.addItem(item("Duplicate Tab", #selector(B.duplicateTab(_:)), "t", [.command, .option]))
         menu.addItem(item("New Folder", #selector(B.newFolder(_:)), "n", [.command, .shift]))
         menu.addItem(item("New Text Document", #selector(B.newTextDocument(_:)), "n", [.command, .option]))
         menu.addItem(.separator())

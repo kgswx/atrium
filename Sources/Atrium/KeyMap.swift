@@ -1,7 +1,7 @@
 import AppKit
 
 /// Windows keys on a Mac keyboard. Ctrl+C/X/V/A/Z/Y work like Cmd (also while typing in a field);
-/// Ctrl+N/T/W/F/E/L/R/D and Ctrl+Shift+N, Option+arrows, Option+D/P/Return and F3/F4/F5 work outside text fields.
+/// Ctrl+N/T/W/F/E/L/R/D, Ctrl+Shift+N (new folder) and Ctrl+Shift+D (duplicate tab), Option+arrows, Option+D/P/Return and F3/F4/F5 work outside text fields.
 enum KeyMap {
     enum Action {
         case menu(NSEvent)
@@ -28,6 +28,7 @@ enum KeyMap {
             let shift = flags.contains(.shift)
             switch (key, shift) {
             case ("n", true): return .send(#selector(BrowserWindowController.newFolder(_:)))
+            case ("d", true): return .send(#selector(BrowserWindowController.duplicateTab(_:)))
             case ("e", false), ("f", false): return .send(#selector(BrowserWindowController.focusSearch(_:)))
             case ("l", false): return .send(#selector(BrowserWindowController.focusAddressBar(_:)))
             case ("r", false): return .send(#selector(BrowserWindowController.refresh(_:)))

@@ -8,15 +8,22 @@ final class SidebarNode: NSObject {
     let title: String
     let url: URL?
     let isPinned: Bool
+    let style: FolderStyle
     /// nil until the node is first expanded; folders are read only when someone opens them.
     var children: [SidebarNode]?
 
-    init(_ kind: Kind, _ title: String, url: URL? = nil, isPinned: Bool = false, children: [SidebarNode]? = nil) {
+    init(_ kind: Kind, _ title: String, url: URL? = nil, isPinned: Bool = false, children: [SidebarNode]? = nil,
+         style: FolderStyle? = nil) {
         self.kind = kind
         self.title = title
         self.url = url
         self.isPinned = isPinned
         self.children = children
+        self.style = style ?? url.map(Self.style(of:)) ?? .plain
+    }
+
+    static func style(of url: URL) -> FolderStyle {
+        FolderStyles.style(at: url, labelNumber: try? url.resourceValues(forKeys: [.labelNumberKey]).labelNumber)
     }
 
     var isExpandable: Bool { kind == .section || kind == .folder || kind == .volume }
@@ -76,6 +83,7 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
             center.addObserver(self, selector: #selector(reload), name: name, object: nil)
         }
         NotificationCenter.default.addObserver(self, selector: #selector(reload), name: Settings.changed, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(reload), name: IconCache.stylesChanged, object: nil)
         reload()
     }
 
@@ -118,7 +126,7 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
         let keys: [URLResourceKey] = [.volumeLocalizedNameKey]
         for volume in fm.mountedVolumeURLs(includingResourceValuesForKeys: keys, options: [.skipHiddenVolumes]) ?? [] {
             let name = (try? volume.resourceValues(forKeys: Set(keys)).volumeLocalizedName) ?? volume.lastPathComponent
-            mac.append(SidebarNode(.volume, name, url: volume))
+            mac.append(SidebarNode(.volume, name, url: volume, style: .plain))
         }
 
         let expanded = Set(sections.flatMap(expandedPaths))
@@ -158,7 +166,7 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
     }
 
     private func subfolders(of url: URL) -> [SidebarNode] {
-        let keys: [URLResourceKey] = [.isDirectoryKey, .isPackageKey]
+        let keys: [URLResourceKey] = [.isDirectoryKey, .isPackageKey, .labelNumberKey]
         let options: FileManager.DirectoryEnumerationOptions = Settings.showHidden ? [] : [.skipsHiddenFiles]
         let urls = (try? FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: keys, options: options)) ?? []
         return urls
@@ -167,7 +175,11 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
                 return v?.isDirectory == true && v?.isPackage != true
             }
             .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
-            .map { SidebarNode(.folder, FileManager.default.displayName(atPath: $0.path), url: $0) }
+            .map { url in
+                let label = try? url.resourceValues(forKeys: [.labelNumberKey]).labelNumber
+                return SidebarNode(.folder, FileManager.default.displayName(atPath: url.path), url: url,
+                                   style: FolderStyles.style(at: url, labelNumber: label))
+            }
     }
 
     private func node(_ item: Any?) -> SidebarNode? { item as? SidebarNode }
@@ -200,7 +212,10 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
         let id = NSUserInterfaceItemIdentifier(isSection ? "HeaderCell" : "DataCell")
         let cell = outlineView.makeView(withIdentifier: id, owner: self) as? NSTableCellView ?? makeCell(id, image: !isSection)
         cell.textField?.stringValue = node.title
-        if let url = node.url { cell.imageView?.image = IconCache.shared.icon(forPath: url.path) }
+        if let url = node.url {
+            cell.imageView?.image = node.style.isPlain ? IconCache.shared.icon(forPath: url.path)
+                : IconCache.shared.folderIcon(url, style: node.style)
+        }
         return cell
     }
 

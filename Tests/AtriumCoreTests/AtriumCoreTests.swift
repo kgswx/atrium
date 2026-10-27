@@ -149,6 +149,16 @@ final class CloudTests: XCTestCase {
         XCTAssertNil(CloudPlaces.driveLink(forItemID: ""))
     }
 
+    func testGuardedFolders() {
+        let home = URL(fileURLWithPath: "/Users/someone")
+        XCTAssertTrue(FolderStyles.isGuarded(home.appendingPathComponent("Desktop"), home: home))
+        XCTAssertTrue(FolderStyles.isGuarded(home.appendingPathComponent("Library/Containers/com.example.app"), home: home))
+        XCTAssertTrue(FolderStyles.isGuarded(home.appendingPathComponent("Library/CloudStorage/GoogleDrive-a@b.com"), home: home))
+        XCTAssertTrue(FolderStyles.isGuarded(URL(fileURLWithPath: "/Volumes/USB"), home: home))
+        XCTAssertFalse(FolderStyles.isGuarded(home.appendingPathComponent("Desktop/Projects"), home: home))
+        XCTAssertFalse(FolderStyles.isGuarded(home.appendingPathComponent("DEV"), home: home))
+    }
+
     func testGoogleKinds() {
         XCTAssertEqual(DirectoryLoader.kindDescription(for: UTType(filenameExtension: "gsheet")!), "Google Sheets")
         XCTAssertEqual(DirectoryLoader.kindDescription(for: UTType(filenameExtension: "gdoc")!), "Google Docs")

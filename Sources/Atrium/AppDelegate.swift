@@ -1,4 +1,5 @@
 import AppKit
+import AtriumCore
 
 /// Atrium stays running with no windows (no Dock icon, no menu bar, no timers) so the hotkey and
 /// "Show in Finder" open a window at once. It becomes a normal app while a window is open.
@@ -13,6 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         Settings.register()
+        FolderStyles.allowedGuardedPaths = { Set(Settings.styledGuardedFolders) }
         NSApp.mainMenu = MainMenu.build()
         NSWindow.allowsAutomaticWindowTabbing = true
         // What NSWorkspace sends the file viewer for "Show in Finder" (activateFileViewerSelecting).
@@ -89,19 +91,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         controller.showWindow(nil)
         // Shown even if macOS declines to bring Atrium forward (activation is a request since macOS 14).
         controller.window?.orderFrontRegardless()
+        showTabBar(controller.window)
         NSApp.activate()
         return controller
     }
 
-    func openTab(at url: URL, beside: BrowserWindowController) {
+    /// `configure` runs before the tab shows, for Duplicate Tab to hand over its history.
+    @discardableResult
+    func openTab(at url: URL, beside: BrowserWindowController, selecting: [URL] = [],
+                 configure: ((BrowserWindowController) -> Void)? = nil) -> BrowserWindowController {
         becomeVisible()
-        let controller = makeController(url, selecting: [])
+        let controller = makeController(url, selecting: selecting)
+        configure?(controller)
         if let host = beside.window, let tab = controller.window {
             host.addTabbedWindow(tab, ordered: .above)
             tab.makeKeyAndOrderFront(nil)
         } else {
             controller.showWindow(nil)
         }
+        return controller
+    }
+
+    /// The tab bar stays visible with a single tab, as in Explorer, instead of appearing only once there are two.
+    private func showTabBar(_ window: NSWindow?) {
+        guard let window, let group = window.tabGroup, !group.isTabBarVisible else { return }
+        window.toggleTabBar(nil)
     }
 
     private func makeController(_ url: URL, selecting: [URL]) -> BrowserWindowController {

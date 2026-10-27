@@ -117,7 +117,8 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
     override func loadView() {
         table.list = self
         table.style = .inset
-        table.rowHeight = 22
+        // 20-point icons, a little larger than Explorer's 16, so folder colours and symbols read at a glance.
+        table.rowHeight = 26
         table.intercellSpacing = NSSize(width: 6, height: 0)
         table.allowsMultipleSelection = true
         table.allowsColumnReordering = true
@@ -292,7 +293,7 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
             case SortKey.name.rawValue:
                 let cell = reuse("Name", in: tableView, make: nameCell)
                 cell.textField?.stringValue = entry.name
-                cell.imageView?.image = IconCache.shared.icon(for: entry)
+                cell.imageView?.image = IconCache.shared.icon(for: entry, size: 20)
                 return cell
             case SortKey.modified.rawValue:
                 return plain(id, entry.modified.map(Self.dates.string(from:)) ?? "", in: tableView)
@@ -376,11 +377,13 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
         }
         cell.imageView = icon
         cell.textField = text
+        icon.imageScaling = .scaleProportionallyUpOrDown
+        let side: CGFloat = id.rawValue == "Name" ? 20 : 16
         NSLayoutConstraint.activate([
             icon.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 2),
             icon.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
-            icon.widthAnchor.constraint(equalToConstant: 16),
-            icon.heightAnchor.constraint(equalToConstant: 16),
+            icon.widthAnchor.constraint(equalToConstant: side),
+            icon.heightAnchor.constraint(equalToConstant: side),
             text.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 6),
             text.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -2),
             text.centerYAnchor.constraint(equalTo: cell.centerYAnchor),

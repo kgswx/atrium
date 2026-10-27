@@ -16,10 +16,12 @@ public struct FileEntry: Hashable {
     public let kind: String
     /// Only read in cloud folders, where it costs a little more per item.
     public let sync: SyncState
+    /// Colour and symbol, for folders.
+    public let style: FolderStyle
 
     public init(url: URL, name: String, isFolder: Bool, isHidden: Bool = false, modified: Date? = nil,
                 created: Date? = nil, size: Int64? = nil, typeIdentifier: String = UTType.data.identifier,
-                kind: String = "Document", sync: SyncState = .none) {
+                kind: String = "Document", sync: SyncState = .none, style: FolderStyle = .plain) {
         self.url = url
         self.name = name
         self.isFolder = isFolder
@@ -30,13 +32,14 @@ public struct FileEntry: Hashable {
         self.typeIdentifier = typeIdentifier
         self.kind = kind
         self.sync = sync
+        self.style = style
     }
 }
 
 public enum DirectoryLoader {
     static let keys: [URLResourceKey] = [
         .nameKey, .isDirectoryKey, .isPackageKey, .isHiddenKey, .isSymbolicLinkKey,
-        .contentModificationDateKey, .creationDateKey, .fileSizeKey, .contentTypeKey,
+        .contentModificationDateKey, .creationDateKey, .fileSizeKey, .contentTypeKey, .labelNumberKey,
     ]
 
     static let syncKeys: [URLResourceKey] = [
@@ -75,7 +78,8 @@ public enum DirectoryLoader {
             // A folder's own state says nothing about its contents, so folders show none.
             sync: cloud && !isFolder ? SyncState.from(isUbiquitous: v.isUbiquitousItem, status: v.ubiquitousItemDownloadingStatus,
                                          isDownloading: v.ubiquitousItemIsDownloading, isUploading: v.ubiquitousItemIsUploading,
-                                         isUploaded: v.ubiquitousItemIsUploaded) : .none)
+                                         isUploaded: v.ubiquitousItemIsUploaded) : .none,
+            style: isFolder ? FolderStyles.style(at: url, labelNumber: v.labelNumber) : .plain)
     }
 
     private static let kinds = NSCache<NSString, NSString>()
