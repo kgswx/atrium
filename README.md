@@ -2,7 +2,7 @@
 
 A light file browser for macOS that works like Windows Explorer: a folder tree on the left, an address bar you can type into, a command bar, a Details view with sortable columns and groups, a preview pane, tabs, and the Windows keys you already know. It is native AppKit: no Electron, no web view, no background polling.
 
-![Atrium showing a folder with the preview pane open](docs/screenshot.png)
+![Atrium showing a folder of coloured folders with symbols, the full path and the preview pane](docs/screenshot.png)
 
 ## What's in version 0.1
 
@@ -155,7 +155,7 @@ The self-test (debug builds only) opens a window on a scratch folder under `buil
 
 - Large icons and a thumbnail view, and a per-folder memory of view, sort and column widths.
 - A copy queue with progress, pause and cancel for big transfers.
-- Breadcrumb arrows that list sibling folders, and autocomplete while typing a path.
+- Autocomplete while typing a path.
 - Dual pane (side by side) for moving files between two folders.
 - Folder sizes in the Size column, computed on request.
 - Tags and Finder comments as columns.
