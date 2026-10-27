@@ -32,7 +32,8 @@ final class SidebarOutlineView: NSOutlineView {
     }
 }
 
-/// The navigation pane: Quick access (with pinned folders), then This Mac with a folder tree and the drives.
+/// The navigation pane: Quick access (with pinned folders), Cloud (iCloud Drive, Google Drive and other
+/// File Provider folders), then This Mac with a folder tree and the drives.
 final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuDelegate {
     var onOpen: ((URL, _ newTab: Bool) -> Void)?
     var onDrop: (([URL], URL, TransferMode) -> Void)?
@@ -96,9 +97,22 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
         place(home.appendingPathComponent("Desktop"))
         place(home.appendingPathComponent("Documents"))
         place(home.appendingPathComponent("Downloads"))
-        place(home.appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs"), "iCloud Drive")
         place(URL(fileURLWithPath: "/Applications"))
         for url in Settings.pinned { place(url, pinned: true) }
+
+        // Cloud folders open like any other tree; Google Drive's holds My Drive and Shared drives.
+        var cloud: [SidebarNode] = []
+        let iCloud = CloudPlaces.iCloudDrive(home: home)
+        if fm.fileExists(atPath: iCloud.path) { cloud.append(SidebarNode(.folder, "iCloud Drive", url: iCloud)) }
+        let storage = CloudPlaces.storage(home: home)
+        let accounts = ((try? fm.contentsOfDirectory(at: storage, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? [])
+            .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+        let described = accounts.map { CloudPlaces.describe(folderName: $0.lastPathComponent) }
+        for (url, (provider, account)) in zip(accounts, described) {
+            let several = described.filter { $0.provider == provider }.count > 1
+            let title = several && account != nil ? "\(provider) (\(account!))" : provider
+            cloud.append(SidebarNode(.folder, title, url: url))
+        }
 
         var mac = [SidebarNode(.folder, fm.displayName(atPath: home.path), url: home)]
         let keys: [URLResourceKey] = [.volumeLocalizedNameKey]
@@ -108,10 +122,14 @@ final class SidebarController: NSViewController, NSOutlineViewDataSource, NSOutl
         }
 
         let expanded = Set(sections.flatMap(expandedPaths))
-        sections = [SidebarNode(.section, "Quick access", children: quick), SidebarNode(.section, "This Mac", children: mac)]
+        sections = [SidebarNode(.section, "Quick access", children: quick)]
+        if !cloud.isEmpty { sections.append(SidebarNode(.section, "Cloud", children: cloud)) }
+        sections.append(SidebarNode(.section, "This Mac", children: mac))
         outline.reloadData()
-        for section in sections { outline.expandItem(section) }
-        restore(expanded, in: sections[1].children ?? [])
+        for section in sections {
+            outline.expandItem(section)
+            restore(expanded, in: section.children ?? [])
+        }
     }
 
     private func expandedPaths(_ node: SidebarNode) -> [String] {

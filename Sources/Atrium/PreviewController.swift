@@ -1,5 +1,6 @@
 import AppKit
 import Quartz
+import AtriumCore
 
 /// Explorer's preview pane, drawn by Quick Look. The Quick Look view only exists while the pane is open.
 final class PreviewController: NSViewController {
@@ -18,7 +19,7 @@ final class PreviewController: NSViewController {
         }
     }
 
-    var urls: [URL] = [] { didSet { if isActive { update() } } }
+    var entries: [FileEntry] = [] { didSet { if isActive { update() } } }
 
     override func loadView() {
         let root = NSView()
@@ -35,10 +36,13 @@ final class PreviewController: NSViewController {
     }
 
     private func update() {
-        guard isActive, urls.count == 1 else {
+        // An online-only file isn't previewed: Quick Look would download it just for arrowing past it.
+        guard isActive, entries.count == 1, entries[0].sync != .cloudOnly else {
             preview?.previewItem = nil
             preview?.isHidden = true
-            placeholder.stringValue = urls.count > 1 ? "\(urls.count) items selected" : "Select a file to preview."
+            placeholder.stringValue = entries.count > 1 ? "\(entries.count) items selected"
+                : entries.first?.sync == .cloudOnly ? "Online only.\nOpen it, or choose Download now, to preview it."
+                : "Select a file to preview."
             placeholder.isHidden = false
             return
         }
@@ -48,7 +52,7 @@ final class PreviewController: NSViewController {
             view.addSubview(made)
             preview = made
         }
-        preview?.previewItem = urls[0] as NSURL
+        preview?.previewItem = entries[0].url as NSURL
         preview?.isHidden = false
         placeholder.isHidden = true
     }

@@ -241,6 +241,40 @@ enum SelfTest {
         wait(0.5)
         check("clearing the search shows the folder again", c.list.allEntries.count >= 4)
 
+        // Optional, against a real cloud folder: ATRIUM_CLOUD_TEST=<folder in Google Drive> scripts/selftest.sh
+        // Downloads one small online-only file and frees it again, so nothing is left changed.
+        if let cloudPath = ProcessInfo.processInfo.environment["ATRIUM_CLOUD_TEST"] {
+            let cloudFolder = URL(fileURLWithPath: cloudPath)
+            c.navigate(to: cloudFolder)
+            wait(10) { c.list.allEntries.first?.url.deletingLastPathComponent().key == cloudFolder.key }
+            lines.append("INFO cloud: folder \(c.folder.lastPathComponent), \(c.list.allEntries.count) items, states \(Set(c.list.allEntries.map { $0.sync.title }))")
+            check("cloud: the Status column shows", c.list.table.tableColumn(withIdentifier: .init("Status"))?.isHidden == false)
+            check("cloud: files have a sync state", c.list.allEntries.contains { $0.sync != .none })
+            let small = c.list.allEntries.first {
+                $0.sync == .cloudOnly && ($0.size ?? .max) < 300_000 && ($0.size ?? 0) > 0 && !$0.name.hasPrefix(".")
+                    && !["gdoc", "gsheet", "gslides"].contains($0.url.pathExtension)
+            }
+            if let small {
+                func state() -> SyncState? { c.list.allEntries.first { $0.url.key == small.url.key }?.sync }
+                select(small.name)
+                c.downloadNow(nil)
+                wait(25) { state() == .local }
+                check("cloud: Download now brings the file to this Mac", state() == .local)
+                select(small.name)
+                c.freeUpSpace(nil)
+                wait(25) { state() == .cloudOnly }
+                check("cloud: Free up space makes it online only again", state() == .cloudOnly)
+                select(small.name)
+                c.copyDriveLink(nil)
+                let link = NSPasteboard.general.string(forType: .string) ?? ""
+                check("cloud: Copy Google Drive link gives a Drive link", link.hasPrefix("https://drive.google.com/open?id="))
+            } else {
+                lines.append("SKIP cloud: no small online-only file in that folder")
+            }
+            c.navigate(to: root)
+            wait(3) { c.folder.key == root.key && !c.list.allEntries.isEmpty }
+        }
+
         c.list.table.deselectAll(nil)
         key(8, "c", [.command, .option])
         check("Copy as Path copies the folder path", NSPasteboard.general.string(forType: .string) == root.path)

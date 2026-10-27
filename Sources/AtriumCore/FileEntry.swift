@@ -14,10 +14,12 @@ public struct FileEntry: Hashable {
     public let size: Int64?
     public let typeIdentifier: String
     public let kind: String
+    /// Only read in cloud folders, where it costs a little more per item.
+    public let sync: SyncState
 
     public init(url: URL, name: String, isFolder: Bool, isHidden: Bool = false, modified: Date? = nil,
                 created: Date? = nil, size: Int64? = nil, typeIdentifier: String = UTType.data.identifier,
-                kind: String = "Document") {
+                kind: String = "Document", sync: SyncState = .none) {
         self.url = url
         self.name = name
         self.isFolder = isFolder
@@ -27,6 +29,7 @@ public struct FileEntry: Hashable {
         self.size = size
         self.typeIdentifier = typeIdentifier
         self.kind = kind
+        self.sync = sync
     }
 }
 
@@ -36,15 +39,22 @@ public enum DirectoryLoader {
         .contentModificationDateKey, .creationDateKey, .fileSizeKey, .contentTypeKey,
     ]
 
+    static let syncKeys: [URLResourceKey] = [
+        .isUbiquitousItemKey, .ubiquitousItemDownloadingStatusKey, .ubiquitousItemIsDownloadingKey,
+        .ubiquitousItemIsUploadingKey, .ubiquitousItemIsUploadedKey,
+    ]
+
     /// Reads a folder with every attribute the list shows fetched in the same pass (getattrlistbulk underneath).
-    public static func entries(in folder: URL, includeHidden: Bool) throws -> [FileEntry] {
+    /// `cloud` adds the sync state, for folders in iCloud Drive, Google Drive and the like.
+    public static func entries(in folder: URL, includeHidden: Bool, cloud: Bool = false) throws -> [FileEntry] {
         let urls = try FileManager.default.contentsOfDirectory(
-            at: folder, includingPropertiesForKeys: keys, options: includeHidden ? [] : [.skipsHiddenFiles])
-        return urls.compactMap(entry(for:))
+            at: folder, includingPropertiesForKeys: cloud ? keys + syncKeys : keys,
+            options: includeHidden ? [] : [.skipsHiddenFiles])
+        return urls.compactMap { entry(for: $0, cloud: cloud) }
     }
 
-    public static func entry(for url: URL) -> FileEntry? {
-        guard let v = try? url.resourceValues(forKeys: Set(keys)) else { return nil }
+    public static func entry(for url: URL, cloud: Bool = false) -> FileEntry? {
+        guard let v = try? url.resourceValues(forKeys: Set(cloud ? keys + syncKeys : keys)) else { return nil }
         let isDirectory = v.isDirectory ?? false
         var isFolder = isDirectory && !(v.isPackage ?? false)
         if v.isSymbolicLink == true,
@@ -61,15 +71,25 @@ public enum DirectoryLoader {
             created: v.creationDate,
             size: isDirectory || isFolder ? nil : Int64(v.fileSize ?? 0),
             typeIdentifier: type.identifier,
-            kind: kindDescription(for: type))
+            kind: kindDescription(for: type),
+            // A folder's own state says nothing about its contents, so folders show none.
+            sync: cloud && !isFolder ? SyncState.from(isUbiquitous: v.isUbiquitousItem, status: v.ubiquitousItemDownloadingStatus,
+                                         isDownloading: v.ubiquitousItemIsDownloading, isUploading: v.ubiquitousItemIsUploading,
+                                         isUploaded: v.ubiquitousItemIsUploaded) : .none)
     }
 
     private static let kinds = NSCache<NSString, NSString>()
 
+    /// Google Drive for desktop shows Docs, Sheets and the rest as small link files that macOS has no name for.
+    static let googleKinds = ["gdoc": "Google Docs", "gsheet": "Google Sheets", "gslides": "Google Slides",
+                              "gdraw": "Google Drawings", "gform": "Google Forms", "gmap": "Google My Maps",
+                              "gsite": "Google Sites", "gjam": "Google Jamboard", "gtable": "Google Tables"]
+
     /// "Folder", "PDF document", "PNG image"... cached per type, because the lookup is slower than the listing.
     public static func kindDescription(for type: UTType) -> String {
         if let hit = kinds.object(forKey: type.identifier as NSString) { return hit as String }
-        var text = type.localizedDescription
+        var text = type.preferredFilenameExtension.flatMap { googleKinds[$0.lowercased()] }
+            ?? type.localizedDescription
             ?? type.preferredFilenameExtension.map { "\($0.uppercased()) file" }
             ?? "Document"
         // Some descriptions start lower case ("folder"); the column reads better capitalised, as in Explorer.

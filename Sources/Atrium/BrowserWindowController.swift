@@ -1,4 +1,5 @@
 import AppKit
+import Quartz
 import AtriumCore
 
 /// One browser tab or window: navigation pane, command bar, Details list, preview pane, status bar,
@@ -22,12 +23,19 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSToo
     private let search = FolderSearch()
     private var folderEntries: [FileEntry] = []
     private var generation = 0
+    /// The selection a load in flight will apply, so a watcher reload that overtakes it keeps it.
+    private var pendingSelection: [URL]?
     private var shownHidden = Settings.showHidden
     private var pendingRename: URL?
     private var reloadAfterRename = false
     private var searchText = ""
     private var searchDelay: DispatchWorkItem?
     private let textUndo = UndoManager()
+    /// In iCloud Drive, Google Drive or another cloud folder: the list shows Status and the cloud actions appear.
+    private var isCloud = false
+    private var isGoogleDrive = false
+    private var cloudRefreshes: [DispatchWorkItem] = []
+    private var home: URL { FileManager.default.homeDirectoryForCurrentUser }
 
     private static let frameName = "AtriumBrowser"
 
@@ -246,6 +254,9 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSToo
             forward.removeAll()
         }
         folder = url
+        isCloud = CloudPlaces.contains(url, home: home)
+        isGoogleDrive = CloudPlaces.isGoogleDrive(url, home: home)
+        cloudRefreshes.forEach { $0.cancel() }
         clearSearch()
         load(selecting: selecting, scrollToTop: true)
         watcher.watch(url) { [weak self] in self?.reload() }
@@ -282,17 +293,19 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSToo
 
     private func load(selecting: [URL]?, scrollToTop: Bool) {
         generation += 1
-        let ticket = generation, url = folder, hidden = Settings.showHidden
+        let ticket = generation, url = folder, hidden = Settings.showHidden, cloud = isCloud
         shownHidden = hidden
-        let keep = selecting ?? list.selectedURLs
+        let keep = selecting ?? pendingSelection ?? list.selectedURLs
+        pendingSelection = keep
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let result = Result { try DirectoryLoader.entries(in: url, includeHidden: hidden) }
+            let result = Result { try DirectoryLoader.entries(in: url, includeHidden: hidden, cloud: cloud) }
             DispatchQueue.main.async {
                 guard let self, ticket == self.generation else { return }
+                self.pendingSelection = nil
                 switch result {
                 case .success(let entries):
                     self.folderEntries = entries
-                    if self.searchText.isEmpty { self.list.show(entries, selecting: keep, scrollToTop: scrollToTop) }
+                    if self.searchText.isEmpty { self.list.show(entries, selecting: keep, scrollToTop: scrollToTop, cloud: cloud) }
                 case .failure(let error):
                     self.folderEntries = []
                     self.list.show([], selecting: [], scrollToTop: true, emptyText: Self.describe(error))
@@ -542,13 +555,71 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSToo
         }
     }
 
+    // MARK: Cloud
+
+    /// Downloads the selection (every file inside a selected folder too), or this whole folder if nothing is selected.
+    @objc func downloadNow(_ sender: Any?) {
+        let urls = targets
+        DispatchQueue.global(qos: .utility).async {
+            let errors = CloudActions.download(urls)
+            guard !errors.isEmpty else { return }
+            DispatchQueue.main.async { FileOperations.showErrors(errors, title: "Some items couldn't be downloaded.") }
+        }
+        refreshSyncStatus()
+    }
+
+    /// Removes the downloaded copies; the files stay in the cloud and download again when opened.
+    @objc func freeUpSpace(_ sender: Any?) {
+        let urls = targets
+        // Quick Look keeps the previewed file open, and macOS won't free a file that is open.
+        preview.entries = []
+        if QLPreviewPanel.sharedPreviewPanelExists(), QLPreviewPanel.shared().isVisible { QLPreviewPanel.shared().orderOut(nil) }
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.3) {
+            let errors = CloudActions.freeUpSpace(urls)
+            guard !errors.isEmpty else { return }
+            DispatchQueue.main.async { FileOperations.showErrors(errors, title: "Some items couldn't be freed up.") }
+        }
+        refreshSyncStatus()
+    }
+
+    @objc func openInGoogleDrive(_ sender: Any?) {
+        let links = driveLinks()
+        links.prefix(10).forEach { NSWorkspace.shared.open($0) }
+    }
+
+    @objc func copyDriveLink(_ sender: Any?) {
+        let links = driveLinks()
+        guard !links.isEmpty else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(links.map(\.absoluteString).joined(separator: "\n"), forType: .string)
+        NotificationCenter.default.post(name: Clipboard.changed, object: nil)
+    }
+
+    /// Links from the Drive IDs Google Drive for desktop stores on each item; none yet for an item still uploading.
+    private func driveLinks() -> [URL] {
+        let links = targets.compactMap { CloudPlaces.driveItemID(at: $0).flatMap(CloudPlaces.driveLink(forItemID:)) }
+        if links.isEmpty { warn("Google Drive hasn't given this item a link yet. Wait until it has uploaded, then try again.") }
+        return links
+    }
+
+    /// Download and eviction change files, not the folder, so the folder watcher doesn't see them:
+    /// look again a few times while it happens, then stop.
+    private func refreshSyncStatus() {
+        cloudRefreshes.forEach { $0.cancel() }
+        cloudRefreshes = [1, 2, 4, 7, 12, 20, 30].map { delay in
+            let work = DispatchWorkItem { [weak self] in self?.reload() }
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+            return work
+        }
+    }
+
     // MARK: View
 
     @objc func togglePreview(_ sender: Any?) {
         let show = previewItem.isCollapsed
         previewItem.animator().isCollapsed = !show
         preview.isActive = show
-        preview.urls = list.selectedURLs
+        preview.entries = list.selectedEntries
         Settings.previewPane = show
         refreshCommands()
     }
@@ -601,14 +672,14 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSToo
         searchText = text
         let root = folder
         let here = Listing.filter(folderEntries, matching: text)
-        list.show(here, selecting: [], searchRoot: root, scrollToTop: true)
+        list.show(here, selecting: [], searchRoot: root, scrollToTop: true, cloud: isCloud)
         statusBar.right.stringValue = "Searching…"
         selectionChanged()
         search.start(text, in: root, includeHidden: Settings.showHidden) { [weak self] found in
             guard let self, self.searchText == text, self.folder == root else { return }
             var seen = Set(here.map(\.url.key))
             let all = here + found.filter { seen.insert($0.url.key).inserted }
-            self.list.show(all, selecting: self.list.selectedURLs, searchRoot: root, scrollToTop: false)
+            self.list.show(all, selecting: self.list.selectedURLs, searchRoot: root, scrollToTop: false, cloud: self.isCloud)
             self.statusBar.right.stringValue = ""
             self.selectionChanged()
         }
@@ -619,7 +690,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSToo
         guard !searchText.isEmpty else { return }
         searchText = ""
         statusBar.right.stringValue = ""
-        list.show(folderEntries, selecting: [], scrollToTop: false)
+        list.show(folderEntries, selecting: [], scrollToTop: false, cloud: isCloud)
         selectionChanged()
     }
 
@@ -634,7 +705,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSToo
 
     func selectionChanged() {
         let selected = list.selectedEntries
-        preview.urls = selected.map(\.url)
+        preview.entries = selected
         let count = list.allEntries.count
         var text = searchText.isEmpty
             ? (count == 1 ? "1 item" : "\(count.formatted()) items")
@@ -685,6 +756,12 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSToo
             return !forward.isEmpty
         case #selector(goUp(_:)):
             return folder.path != "/"
+        case #selector(downloadNow(_:)):
+            return isCloud && (selected.isEmpty || selected.contains { $0.isFolder || $0.sync == .cloudOnly })
+        case #selector(freeUpSpace(_:)):
+            return isCloud && (selected.isEmpty || selected.contains { $0.isFolder || $0.sync == .local })
+        case #selector(openInGoogleDrive(_:)), #selector(copyDriveLink(_:)):
+            return isGoogleDrive
         default:
             return true
         }
@@ -771,9 +848,21 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSToo
         menu.addItem(item("Open in Finder", #selector(openInFinder(_:)), symbol: "macwindow"))
         menu.addItem(item("Pin to Quick access", #selector(pinToQuickAccess(_:)), symbol: "pin"))
         menu.addItem(item("Compress to ZIP file", #selector(compress(_:)), symbol: "doc.zipper"))
+        addCloudItems(to: menu)
         menu.addItem(.separator())
         menu.addItem(item("Properties", #selector(showProperties(_:)), symbol: "info.circle"))
         return menu
+    }
+
+    /// Download now / Free up space in cloud folders; Open in Google Drive / Copy link in Google Drive.
+    private func addCloudItems(to menu: NSMenu) {
+        guard isCloud else { return }
+        menu.addItem(.separator())
+        menu.addItem(item("Download now", #selector(downloadNow(_:)), symbol: "icloud.and.arrow.down"))
+        menu.addItem(item("Free up space", #selector(freeUpSpace(_:)), symbol: "cloud"))
+        guard isGoogleDrive else { return }
+        menu.addItem(item("Open in Google Drive", #selector(openInGoogleDrive(_:)), symbol: "safari"))
+        menu.addItem(item("Copy Google Drive link", #selector(copyDriveLink(_:)), symbol: "link"))
     }
 
     /// Right-click menu for the list: one for the selected items, one for blank space.
@@ -798,6 +887,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSToo
             menu.addItem(item("Copy as Path", #selector(copyPath(_:))))
             menu.addItem(item("Pin to Quick access", #selector(pinToQuickAccess(_:))))
             menu.addItem(item("Open in Finder", #selector(openInFinder(_:))))
+            addCloudItems(to: menu)
             menu.addItem(.separator())
             menu.addItem(item("Properties", #selector(showProperties(_:))))
             return
@@ -824,6 +914,7 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSToo
             menu.addItem(item("Pin to Quick access", #selector(pinToQuickAccess(_:)), symbol: "pin"))
             menu.addItem(item("Open in Terminal", #selector(openInTerminal(_:)), symbol: "terminal"))
         }
+        addCloudItems(to: menu)
         menu.addItem(.separator())
         menu.addItem(item("Properties", #selector(showProperties(_:)), symbol: "info.circle"))
     }
@@ -858,7 +949,11 @@ final class BrowserWindowController: NSWindowController, NSWindowDelegate, NSToo
         window.firstResponder is NSText ? textUndo : FileOperations.shared.undoManager
     }
 
-    func windowDidBecomeKey(_ notification: Notification) { refreshCommands() }
+    func windowDidBecomeKey(_ notification: Notification) {
+        refreshCommands()
+        // Coming back to a cloud folder: files may have synced meanwhile.
+        if isCloud && searchText.isEmpty { reload() }
+    }
 
     func windowDidEndLiveResize(_ notification: Notification) { saveFrame() }
 

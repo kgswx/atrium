@@ -103,6 +103,11 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
         return f
     }()
 
+    /// Icon and words together, so the colour is never the only clue.
+    private static let statusSymbols: [SyncState: String] = [
+        .cloudOnly: "cloud", .local: "checkmark.circle", .syncing: "arrow.triangle.2.circlepath", .waiting: "arrow.up.circle",
+    ]
+
     private static let bytes: ByteCountFormatter = {
         let f = ByteCountFormatter()
         f.countStyle = .file
@@ -134,6 +139,12 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
         table.setAccessibilityLabel("Items")
 
         addColumn("Name", key: .name, width: 280, min: 140)
+        let status = NSTableColumn(identifier: .init("Status"))
+        status.title = "Status"
+        status.width = 120
+        status.minWidth = 40
+        status.isHidden = true
+        table.addTableColumn(status)
         addColumn("Date modified", key: .modified, width: 140, min: 90)
         addColumn("Type", key: .kind, width: 140, min: 70)
         addColumn("Size", key: .size, width: 90, min: 60)
@@ -143,7 +154,8 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
         folder.minWidth = 80
         folder.isHidden = true
         table.addTableColumn(folder)
-        table.autosaveName = "AtriumDetailsColumns"
+        // v2: Status joined after Name; a new name so saved layouts from 0.1 don't push it to the end.
+        table.autosaveName = "AtriumDetailsColumns2"
         table.autosaveTableColumns = true
         table.sortDescriptors = [NSSortDescriptor(key: Settings.sortKey.rawValue, ascending: Settings.sortAscending)]
 
@@ -183,13 +195,16 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
 
     // MARK: Showing items
 
-    func show(_ newEntries: [FileEntry], selecting urls: [URL], searchRoot: URL? = nil, scrollToTop: Bool, emptyText: String? = nil) {
+    func show(_ newEntries: [FileEntry], selecting urls: [URL], searchRoot: URL? = nil, scrollToTop: Bool,
+              emptyText: String? = nil, cloud: Bool = false) {
         entries = newEntries
         self.searchRoot = searchRoot
         table.tableColumn(withIdentifier: .init("Folder"))?.isHidden = searchRoot == nil
+        table.tableColumn(withIdentifier: .init("Status"))?.isHidden = !cloud
         cut = Clipboard.cutPaths
         rebuild(selecting: urls)
-        if scrollToTop { table.scrollRowToVisible(0) }
+        // A revealed file wins over the top of the list (rebuild has already scrolled to it).
+        if scrollToTop && table.selectedRowIndexes.isEmpty { table.scrollRowToVisible(0) }
         emptyLabel.stringValue = emptyText ?? (searchRoot == nil ? "This folder is empty." : "No items match your search.")
         emptyLabel.isHidden = !entries.isEmpty
     }
@@ -285,6 +300,13 @@ final class FileListController: NSViewController, NSTableViewDataSource, NSTable
                 return plain(id, entry.kind, in: tableView)
             case SortKey.size.rawValue:
                 return plain(id, entry.size.map(Self.bytes.string(fromByteCount:)) ?? "", in: tableView, right: true)
+            case "Status":
+                let cell = reuse("Status", in: tableView, make: nameCell)
+                cell.textField?.stringValue = entry.sync.title
+                cell.textField?.textColor = .secondaryLabelColor
+                cell.imageView?.image = Self.statusSymbols[entry.sync].flatMap { NSImage(systemSymbolName: $0, accessibilityDescription: nil) }
+                cell.imageView?.contentTintColor = .secondaryLabelColor
+                return cell
             default:
                 let parent = entry.url.deletingLastPathComponent().path
                 let root = searchRoot?.path ?? ""

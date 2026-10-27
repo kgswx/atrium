@@ -6,7 +6,7 @@ A light file browser for macOS that works like Windows Explorer: a folder tree o
 
 ## What's in version 0.1
 
-- **Navigation pane**: Quick access (Home, Desktop, Documents, Downloads, iCloud Drive, Applications and your pinned folders), then This Mac with a folder tree and every drive. Right-click to pin, unpin or eject; middle-click opens in a new tab.
+- **Navigation pane**: Quick access (Home, Desktop, Documents, Downloads, Applications and your pinned folders), Cloud (iCloud Drive, Google Drive, OneDrive, Dropbox: whatever is set up), then This Mac with a folder tree and every drive. Right-click to pin, unpin or eject; middle-click opens in a new tab.
 - **Address bar**: a breadcrumb you click; click beside it (or press Ctrl+L, Option+D or F4) to type a path. It understands `~/Documents`, `..`, `Documents\Work`, quoted paths, and words like `downloads`.
 - **Command bar**: New (folder or text document), Cut, Copy, Paste, Rename, Share, Delete, Sort, View and a "…" menu with Copy as path, Open in Terminal, Pin to Quick access, Compress to ZIP and Properties. The Preview toggle sits on the right.
 - **Details view**: Name, Date modified, Type and Size; click a header to sort, drag to resize or reorder; folders always come first. Group by Type or Date modified (Today, Yesterday, Earlier this week…).
@@ -15,10 +15,24 @@ A light file browser for macOS that works like Windows Explorer: a folder tree o
 - **Rename in place** with F2: only the name is selected, not the extension, and changing the extension asks first.
 - **Undo** (Ctrl+Z) and **Redo** (Ctrl+Y) for copy, move, rename, new folder and Move to Trash, shared across all windows.
 - **Search** box: matches in the current folder show at once, matches in subfolders follow from Spotlight a moment later, with a Folder column so you can see where each one is.
+- **Google Drive and other cloud folders**: see below.
 - **Preview pane** (Option+P) drawn by Quick Look, and Space for the Quick Look panel.
 - **Properties** (Option+Return or Cmd+I): type, location, size and size on disk, with folder contents counted in the background.
 - **Tabs**: Ctrl+T or Cmd+T, and the tab bar's + button.
 - **Open With**, **Open in Terminal**, **Open in Finder**, **Copy as path**, **Compress to ZIP**, **Show hidden items** (Shift+Cmd+.).
+
+## Google Drive and other cloud folders
+
+Atrium works with the files Google Drive for desktop keeps in `~/Library/CloudStorage`, the same way it works with iCloud Drive, OneDrive and Dropbox. Nothing to sign in to: the Drive app does the syncing, and Atrium reads what macOS reports about each file.
+
+- **Cloud** in the navigation pane lists each account; Google Drive opens to My Drive and Shared drives.
+- A **Status** column appears in cloud folders, as in Explorer for OneDrive: *Online only*, *On this Mac*, *Syncing* or *Waiting to upload*, each with its own icon.
+- **Download now** fetches the selection, or a whole folder, to keep on this Mac. **Free up space** removes the downloaded copies and leaves the files in the cloud.
+- **Open in Google Drive** opens the item on drive.google.com, and **Copy Google Drive link** copies its link, built from the Drive ID that Google Drive for desktop stores on each item.
+- Google Docs, Sheets and Slides show under their own names in the Type column, and open in the browser as they do from Finder.
+- The preview pane doesn't preview online-only files, so arrowing through a Drive folder doesn't download it. Open a file, press Space, or choose Download now to see it.
+
+These are in the right-click menu, the "…" menu and the File menu whenever you are in a cloud folder.
 
 ## Keys
 
@@ -105,11 +119,14 @@ swift test                 # unit tests for listing, sorting, grouping, naming a
 ./scripts/build.sh         # build/Atrium.app
 ```
 
+`ATRIUM_CLOUD_TEST="<a Google Drive folder>" ./scripts/selftest.sh` adds a pass against a real cloud folder: it checks the Status column, downloads one small online-only file, frees it up again and copies its Drive link, leaving the folder as it found it.
+
 The self-test (debug builds only) opens a window on a scratch folder under `build/`, sends the keys through the same key map and menu shortcuts as a real key press, and checks the result on disk: copy and paste naming, cut and paste moving, rename with F2, undo and redo, Move to Trash and back, navigation, the address bar, hidden items, grouping, search and Properties.
 
 | Where | What |
 | --- | --- |
-| `Sources/AtriumCore` | Reading folders, sorting, grouping, Explorer-style names, address-bar parsing. No AppKit; unit tested. |
+| `Sources/AtriumCore` | Reading folders, sorting, grouping, Explorer-style names, address-bar parsing, cloud sync state and Drive links. No AppKit; unit tested. |
+| `Sources/Atrium/CloudActions.swift` | Download now and Free up space. |
 | `Sources/Atrium/BrowserWindowController.swift` | One window or tab: navigation, commands, menus, search. |
 | `Sources/Atrium/FileListController.swift` | The Details view, rename in place, drag and drop, Quick Look. |
 | `Sources/Atrium/SidebarController.swift` | The navigation pane. |

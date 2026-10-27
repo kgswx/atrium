@@ -22,7 +22,8 @@ final class FolderSearch {
             }
             self?.stop()
             DispatchQueue.global(qos: .userInitiated).async {
-                let entries = paths.compactMap { DirectoryLoader.entry(for: URL(fileURLWithPath: $0)) }
+                let cloud = CloudPlaces.contains(folder, home: FileManager.default.homeDirectoryForCurrentUser)
+                let entries = paths.compactMap { DirectoryLoader.entry(for: URL(fileURLWithPath: $0), cloud: cloud) }
                     .filter { includeHidden || !$0.isHidden }
                 DispatchQueue.main.async { completion(entries) }
             }

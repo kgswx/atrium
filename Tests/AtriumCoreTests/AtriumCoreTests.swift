@@ -1,4 +1,5 @@
 import XCTest
+import UniformTypeIdentifiers
 @testable import AtriumCore
 
 final class FileNamingTests: XCTestCase {
@@ -115,5 +116,41 @@ final class DirectoryLoaderTests: XCTestCase {
         XCTAssertEqual(visible.first { $0.name == "Sub" }?.isFolder, true)
         XCTAssertNil(visible.first { $0.name == "Sub" }?.size)
         XCTAssertEqual(try DirectoryLoader.entries(in: dir, includeHidden: true).count, 3)
+    }
+}
+
+final class CloudTests: XCTestCase {
+    let home = URL(fileURLWithPath: "/Users/someone")
+
+    func testSyncStates() {
+        XCTAssertEqual(SyncState.from(isUbiquitous: false, status: .current, isDownloading: false, isUploading: false, isUploaded: true), .none)
+        XCTAssertEqual(SyncState.from(isUbiquitous: true, status: .notDownloaded, isDownloading: false, isUploading: false, isUploaded: true), .cloudOnly)
+        XCTAssertEqual(SyncState.from(isUbiquitous: true, status: .current, isDownloading: false, isUploading: false, isUploaded: true), .local)
+        XCTAssertEqual(SyncState.from(isUbiquitous: true, status: .notDownloaded, isDownloading: true, isUploading: false, isUploaded: true), .syncing)
+        XCTAssertEqual(SyncState.from(isUbiquitous: true, status: .current, isDownloading: false, isUploading: false, isUploaded: false), .waiting)
+    }
+
+    func testPlaces() {
+        XCTAssertTrue(CloudPlaces.contains(home.appendingPathComponent("Library/CloudStorage/GoogleDrive-a@b.com/My Drive"), home: home))
+        XCTAssertTrue(CloudPlaces.contains(home.appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs/x"), home: home))
+        XCTAssertFalse(CloudPlaces.contains(home.appendingPathComponent("Documents"), home: home))
+        XCTAssertFalse(CloudPlaces.contains(home.appendingPathComponent("Library/CloudStorageOld"), home: home))
+        XCTAssertTrue(CloudPlaces.isGoogleDrive(home.appendingPathComponent("Library/CloudStorage/GoogleDrive-a@b.com"), home: home))
+        XCTAssertFalse(CloudPlaces.isGoogleDrive(home.appendingPathComponent("Library/CloudStorage/OneDrive-Personal"), home: home))
+    }
+
+    func testNamesAndLinks() {
+        XCTAssertEqual(CloudPlaces.describe(folderName: "GoogleDrive-a@b.com").provider, "Google Drive")
+        XCTAssertEqual(CloudPlaces.describe(folderName: "GoogleDrive-a@b.com").account, "a@b.com")
+        XCTAssertEqual(CloudPlaces.describe(folderName: "OneDrive-Personal").provider, "OneDrive")
+        XCTAssertNil(CloudPlaces.describe(folderName: "Dropbox").account)
+        XCTAssertEqual(CloudPlaces.driveLink(forItemID: "1AbC_d-9")?.absoluteString, "https://drive.google.com/open?id=1AbC_d-9")
+        XCTAssertNil(CloudPlaces.driveLink(forItemID: "a&b=c"))
+        XCTAssertNil(CloudPlaces.driveLink(forItemID: ""))
+    }
+
+    func testGoogleKinds() {
+        XCTAssertEqual(DirectoryLoader.kindDescription(for: UTType(filenameExtension: "gsheet")!), "Google Sheets")
+        XCTAssertEqual(DirectoryLoader.kindDescription(for: UTType(filenameExtension: "gdoc")!), "Google Docs")
     }
 }

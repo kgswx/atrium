@@ -59,6 +59,11 @@ enum MainMenu {
         menu.addItem(item("Open in Finder", #selector(B.openInFinder(_:))))
         menu.addItem(item("Pin to Quick Access", #selector(B.pinToQuickAccess(_:))))
         menu.addItem(.separator())
+        menu.addItem(item("Download Now", #selector(B.downloadNow(_:))))
+        menu.addItem(item("Free Up Space", #selector(B.freeUpSpace(_:))))
+        menu.addItem(item("Open in Google Drive", #selector(B.openInGoogleDrive(_:))))
+        menu.addItem(item("Copy Google Drive Link", #selector(B.copyDriveLink(_:))))
+        menu.addItem(.separator())
         menu.addItem(item("Properties", #selector(B.showProperties(_:)), "i"))
         return menu
     }
